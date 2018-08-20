@@ -62,19 +62,31 @@ impl<'a> StructInfo<'a> {
         let phantom_generics = {
             let lifetimes = self.generics.lifetimes.iter().map(|l| &l.lifetime);
             let types = self.generics.ty_params.iter().map(|t| &t.ident);
-            quote!{
-                #( ::std::marker::PhantomData<&#lifetimes ()>, )*
-                #( ::std::marker::PhantomData<#types>, )*
+            if cfg!(feature = "std") {
+                quote!{
+                    #( ::std::marker::PhantomData<&#lifetimes ()>, )*
+                    #( ::std::marker::PhantomData<#types>, )*
+                }
+            } else {
+                quote!{
+                    #( ::core::marker::PhantomData<&#lifetimes ()>, )*
+                    #( ::core::marker::PhantomData<#types>, )*
+                }
             }
         };
         let doc = self.builder_doc();
+        let default_call = if cfg!(feature="std") {
+            quote!(::std::default::Default::default())
+        } else {
+            quote!(::core::default::Default::default())
+        };
         quote! {
             impl #impl_generics #name #ty_generics #where_clause {
                 #[doc=#doc]
                 #[allow(dead_code)]
                 #vis fn builder() -> #builder_name #generics_with_empty {
                     #builder_name {
-                        _TypedBuilder__phantomGenerics_: ::std::default::Default::default(),
+                        _TypedBuilder__phantomGenerics_: #default_call,
                         #init_empties
                     }
                 }
@@ -177,10 +189,16 @@ impl<'a> StructInfo<'a> {
             }
         });
         let (_, target_generics, _) = generics.split_for_impl();
+
+        let into_trait = if cfg!(feature = "std") {
+            quote! { ::std::convert::Into<#field_type> }
+        } else {
+            quote! { ::core::convert::Into<#field_type> }
+        };
         quote!{
             #[allow(dead_code, non_camel_case_types, missing_docs)]
             impl #impl_generics #builder_name #ty_generics #where_clause {
-                pub fn #field_name<#generic_ident: ::std::convert::Into<#field_type>>(self, value: #generic_ident) -> #builder_name #target_generics {
+                pub fn #field_name<#generic_ident: #into_trait>(self, value: #generic_ident) -> #builder_name #target_generics {
                     #builder_name {
                         _TypedBuilder__phantomGenerics_: self._TypedBuilder__phantomGenerics_,
                         #field_name: (value.into(),),
